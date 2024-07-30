@@ -295,6 +295,7 @@ public class ProfileService {
     public void updateProfileCompleteStatusOnFirstFill(Profile profile) {
         if(isProfileComplete(profile) && !profile.getIsProfileComplete()){
             profile.updateIsProfileComplete(true);
+            profileRepository.save(profile);
         }
     }
 }
