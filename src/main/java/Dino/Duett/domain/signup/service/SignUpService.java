@@ -1,21 +1,23 @@
 package Dino.Duett.domain.signup.service;
 
+import Dino.Duett.config.login.jwt.JwtTokenProvider;
+import Dino.Duett.config.login.jwt.JwtTokenType;
 import Dino.Duett.domain.authentication.VerificationCodeManager;
-import Dino.Duett.domain.authentication.dto.VerificationCodeDto;
 import Dino.Duett.domain.member.dto.MemberDto;
 import Dino.Duett.domain.member.entity.Member;
-import Dino.Duett.domain.member.repository.MemberRepository;
 import Dino.Duett.domain.member.service.MemberService;
-import Dino.Duett.domain.signup.dto.SignUpReq;
-import Dino.Duett.domain.signup.dto.SignUpRes;
+import Dino.Duett.domain.profile.service.ProfileService;
+import Dino.Duett.domain.signup.dto.request.SignUpReq;
+import Dino.Duett.domain.signup.dto.request.WithdrawalReq;
+import Dino.Duett.domain.signup.dto.response.SignUpRes;
+import Dino.Duett.global.dto.TokenDto;
 import Dino.Duett.global.exception.CustomException;
 import Dino.Duett.gmail.GmailReader;
-import Dino.Duett.gmail.exception.GmailException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
 
 @Slf4j
 @Service
@@ -25,25 +27,34 @@ public class SignUpService {
     private final VerificationCodeManager verificationCodeManager;
     private final GmailReader gmailReader;
     private final MemberService memberService;
+    private final ProfileService profileService;
+    private final JwtTokenProvider jwtTokenProvider;
 
     // 회원가입
     public SignUpRes signUp(SignUpReq signUpReq) throws CustomException {
         // redis, gmail 인증 코드 확인
-        verificationCodeManager.verifyCode(signUpReq.getPhoneNumber(), signUpReq.getCode());
-        gmailReader.validate(signUpReq.getPhoneNumber(), signUpReq.getCode());
+        verificationCodeManager.verifyCode(signUpReq.getPhoneNumber(), signUpReq.getVerificationCode());
+        gmailReader.validate(signUpReq.getPhoneNumber(), signUpReq.getVerificationCode());
         // 회원가입 처리
-        Member member = memberService.createMember(signUpReq.getPhoneNumber(), signUpReq.getKakaoId());
+        Member member = memberService.createMember(signUpReq.getPhoneNumber(), signUpReq.getKakaoId(), signUpReq.getSnsAgree());
+
         MemberDto memberDto = memberService.makeMemberDto(member);
         // todo: 프로필 생성
-        // profileService.createProfile(signUpReq);
+        profileService.createProfile(signUpReq);
 
         // redis 인증 코드 삭제. 회원가입 처리 성공 시 인증 코드 삭제
         verificationCodeManager.deleteCode(signUpReq.getPhoneNumber());
         // todo: gmail 인증 코드 삭제
         // gmailReader.deleteCode(signUpReq.getPhoneNumber());
 
+        // token 발급
+        String accessToken = jwtTokenProvider.createToken(member.getId(), JwtTokenType.ACCESS_TOKEN);
+        String refreshToken = jwtTokenProvider.createToken(member.getId(), JwtTokenType.REFRESH_TOKEN);
+        TokenDto tokens = TokenDto.of(accessToken, refreshToken);
+
         return SignUpRes.builder()
                 .member(memberDto)
+                .token(tokens)
                 .build();
     }
 }
